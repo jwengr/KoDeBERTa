@@ -12,6 +12,7 @@ torchaudio = "*"
 pytorch-lightning = "*"
 transformers = "*"
 tokenizers = "*"
+datasets = "*"
 
 [dev-packages]
 
