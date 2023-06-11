@@ -30,7 +30,7 @@ class DataCollatorForSentencePieceSpanMLM:
         self.truncation_argument = truncation_argument
 
         if self.padding_argument:
-            self.tokenizer.enable_padding(**padding_argument)
+            self.tokenizer.enable_padding(**self.padding_argument)
         if self.truncation_argument:
             self.tokenizer.enable_truncation(**self.truncation_argument)
 
@@ -38,18 +38,18 @@ class DataCollatorForSentencePieceSpanMLM:
         encodes = self.tokenizer.encode_batch(texts)
         label_ids = []
         masked_ids = []
-        attention_masks = []
+        attention_mask = []
         for encode in encodes:
             label_id = torch.LongTensor(encode.ids)
             label_ids.append(label_id)
             masked_id = torch.LongTensor(self._span_mlm(encode.ids))
             masked_ids.append(masked_id)
-            attention_masks.append(torch.LongTensor(encode.attention_mask))
+            attention_mask.append(torch.LongTensor(encode.attention_mask))
 
         batch = {
             'label_ids' : torch.stack(label_ids),
-            'masked_texts' : torch.stack(masked_ids),
-            'attention_masks' : torch.stack(attention_masks)
+            'masked_ids' : torch.stack(masked_ids),
+            'attention_mask' : torch.stack(attention_mask)
         }
 
         return batch

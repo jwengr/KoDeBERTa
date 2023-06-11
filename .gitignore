@@ -1,3 +1,7 @@
 .local/
 
 __pycache__/
+
+.model/
+
+lightning_logs/
