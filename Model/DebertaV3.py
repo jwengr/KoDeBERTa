@@ -50,7 +50,7 @@ class DebertaV3ForPretraining(pl.LightningModule):
         optimizer_generator, optimizer_discriminator = self.optimizers()
         scheduler_generator, scheduler_discriminator = self.lr_schedulers()
         
-        pred_ids, loss_generator = self.forward_generator(masked_ids=masked_ids, attention_mask=attention_mask, label_ids=label_ids)
+        pred_ids, loss_generator = self.forward_generator(masked_ids=masked_ids.detach(), attention_mask=attention_mask.detach(), label_ids=label_ids.detach())
         pred_ids = pred_ids.detach()
         optimizer_generator.zero_grad()
         self.manual_backward(loss_generator)
@@ -61,7 +61,7 @@ class DebertaV3ForPretraining(pl.LightningModule):
         inputs_embeds_stop_gradient = self.generator.deberta.embeddings.word_embeddings(pred_ids).detach()
         inputs_embeds_diff = self.discriminator.deberta.embeddings.word_embeddings_diff(pred_ids)
         inputs_embeds = inputs_embeds_stop_gradient + inputs_embeds_diff
-        loss_discriminator = self.forward_discriminator(inputs_embeds=inputs_embeds, attention_mask=attention_mask, masked_ids=masked_ids)
+        loss_discriminator = self.forward_discriminator(inputs_embeds=inputs_embeds.detach(), attention_mask=attention_mask.detach(), masked_ids=masked_ids.detach())
         loss_discriminator = loss_discriminator * 50
         optimizer_discriminator.zero_grad()
         self.manual_backward(loss_discriminator)
@@ -74,7 +74,8 @@ class DebertaV3ForPretraining(pl.LightningModule):
             requires_grad=True
         )
 
-        self.log_dict({"Loss_G": loss_generator.detach().item(), "Loss_D": loss_discriminator.detach().item()}, on_step=True, on_epoch=False)
+        self.log_dict({"Loss_G": loss_generator.item(), "Loss_D": loss_discriminator.item()}, on_step=True, on_epoch=False)
+        torch.cuda.empty_cache()
         return
     
     def validation_step(self, batch, batch_idx):
