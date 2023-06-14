@@ -3,8 +3,8 @@ import torch.nn as nn
 import pytorch_lightning as pl
 
 from copy import deepcopy
+from torch.optim import AdamW
 from transformers import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
-from transformers.optimization import AdamW
 from transformers import get_linear_schedule_with_warmup
 
 class DebertaV3ForPretraining(pl.LightningModule):
