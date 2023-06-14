@@ -61,7 +61,7 @@ class DebertaV3ForPretraining(pl.LightningModule):
         inputs_embeds_stop_gradient = self.generator.deberta.embeddings.word_embeddings(pred_ids).detach()
         inputs_embeds_diff = self.discriminator.deberta.embeddings.word_embeddings_diff(pred_ids)
         inputs_embeds = inputs_embeds_stop_gradient + inputs_embeds_diff
-        loss_discriminator = self.forward_discriminator(inputs_embeds=inputs_embeds.detach(), attention_mask=attention_mask.detach(), masked_ids=masked_ids.detach())
+        loss_discriminator = self.forward_discriminator(inputs_embeds=inputs_embeds, attention_mask=attention_mask.detach(), masked_ids=masked_ids.detach())
         loss_discriminator = loss_discriminator * 50
         optimizer_discriminator.zero_grad()
         self.manual_backward(loss_discriminator)
