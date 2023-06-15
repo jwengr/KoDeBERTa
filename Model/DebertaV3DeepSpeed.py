@@ -1,4 +1,5 @@
 import gc
+import json
 import argparse
 import torch
 import torch.nn as nn
@@ -76,56 +77,26 @@ class DebertaV3ForPretraining(pl.LightningModule):
         self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
 
         if self.global_step>0 and self.global_step%(self.hparams.max_steps//20)==0:
+            torch.save(self.generator.state_dict(), f'generator_step={self.global_step}_loss={loss_generator.item()}.pth')
+            torch.save(self.discriminator.state_dict(), f'discriminator_step={self.global_step}_loss={loss_discriminator.item()}.pth')
             self.generator_engine.save_checkpoint(self.hparams.save_dir, loss_generator.item(), client_sd = self.global_step)
             self.discriminator_engine.save_checkpoint(self.hparams.save_dir, loss_discriminator.item(), client_sd = self.global_step)
 
         gc.collect()
         torch.cuda.empty_cache()
 
-
-def get_argument_parser():
+def get_args():
     parser = argparse.ArgumentParser(description="DeBERTaV3")
-    parser.add_argument('--datapath', type=str)
-    parser.add_argument('--encoding', type=str, default='utf-8-sig')
-    parser.add_argument('--modelname', type=str)
-    parser.add_argument('--maxlength', type=int, default=512)
-    parser.add_argument('--batchsize', type=int, default=4)
-    parser.add_argument('--maxsteps', type=int, default=-1)
-    parser.add_argument('--warmupsteps', type=int, default=-1)
-    parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--shuffle', type=bool, default=True)
-    parser.add_argument('--buffersize', type=int, default=8_800_000)
-    parser.add_argument('--tokenizerpath', type=str)
-    parser.add_argument('--masktoken', type=str, default='[MASK]')
-    parser.add_argument('--padtoken', type=str, default='[PAD]')
-    parser.add_argument('--dataloader', type=str)
-    parser.add_argument('--mask_prob', type=float, default=0.15)
-    parser.add_argument('--accelerator', type=str, default='auto')
-    parser.add_argument('--savedir', type=str)
+    parser.add_argument('--general_config', type=str)
+    parser.add_argument('--deepspeed_config', type=str)
     parser = deepspeed.add_config_arguments(parser)
-    args = parser.parse_args()
-    return args
 
-def add_ds_config(args):
-    ds_config = {
-        "train_micro_batch_size_per_gpu": args.batchsize,
-        "optimizer": {
-            "type": "Adam",
-            "params": {
-                "lr": 1e-7
-            }
-        },
-        "fp16": {
-            "enabled": True
-        },
-        "zero_optimization": {
-            "stage": 1,
-            "offload_optimizer": {
-                "device": "cpu"
-            }
-        }
-    }
-    setattr(args,'ds_config',ds_config)
+    args = parser.parse_args()
+    with open(args.general_config, 'r') as f:
+        general_config = json.load(f)
+        for key, value in general_config.items():
+            setattr(args, key, value)
+
     return args
 
 def train(args):
@@ -163,6 +134,24 @@ def train(args):
 
 
 if __name__ == "__main__":
-    args = get_argument_parser()
-    args = add_ds_config(args)
+    args = get_args()
     train(args)
+
+
+    # parser.add_argument('--datapath', type=str)
+    # parser.add_argument('--encoding', type=str, default='utf-8-sig')
+    # parser.add_argument('--modelname', type=str)
+    # parser.add_argument('--maxlength', type=int, default=512)
+    # parser.add_argument('--batchsize', type=int, default=4)
+    # parser.add_argument('--maxsteps', type=int, default=-1)
+    # parser.add_argument('--warmupsteps', type=int, default=-1)
+    # parser.add_argument('--seed', type=int, default=0)
+    # parser.add_argument('--shuffle', type=bool, default=True)
+    # parser.add_argument('--buffersize', type=int, default=8_800_000)
+    # parser.add_argument('--tokenizerpath', type=str)
+    # parser.add_argument('--masktoken', type=str, default='[MASK]')
+    # parser.add_argument('--padtoken', type=str, default='[PAD]')
+    # parser.add_argument('--dataloader', type=str)
+    # parser.add_argument('--mask_prob', type=float, default=0.15)
+    # parser.add_argument('--accelerator', type=str, default='auto')
+    # parser.add_argument('--savedir', type=str)
