@@ -53,7 +53,7 @@ class DebertaV3ForPretraining(pl.LightningModule):
         optimizer_generator, optimizer_discriminator = self.optimizers()
         scheduler_generator, scheduler_discriminator = self.lr_schedulers()
         
-        self.toggle_optimizer(optimizer_generator, 0)
+        self.toggle_optimizer(optimizer_generator)
         optimizer_generator.zero_grad()
         pred_ids, loss_generator = self.forward_generator(masked_ids=masked_ids, attention_mask=attention_mask, label_ids=label_ids)
         pred_ids = pred_ids.detach()
@@ -61,9 +61,9 @@ class DebertaV3ForPretraining(pl.LightningModule):
         self.clip_gradients(optimizer_generator, gradient_clip_val=1.0, gradient_clip_algorithm="norm")
         optimizer_generator.step()
         scheduler_generator.step()
-        self.untoggle_optimizer(0)
+        self.untoggle_optimizer(optimizer_generator)
 
-        self.toggle_optimizer(optimizer_discriminator, 1)
+        self.toggle_optimizer(optimizer_discriminator)
         optimizer_discriminator.zero_grad()
         inputs_embeds = self.generator.deberta.embeddings.word_embeddings(pred_ids).detach() + self.discriminator.deberta.embeddings.word_embeddings(pred_ids)
         loss_discriminator = self.forward_discriminator(inputs_embeds=inputs_embeds, attention_mask=attention_mask, masked_ids=masked_ids, label_ids=label_ids)
@@ -72,7 +72,7 @@ class DebertaV3ForPretraining(pl.LightningModule):
         self.clip_gradients(optimizer_discriminator, gradient_clip_val=1.0, gradient_clip_algorithm="norm")
         optimizer_discriminator.step()
         scheduler_discriminator.step()
-        self.untoggle_optimizer(1)
+        self.untoggle_optimizer(optimizer_discriminator)
 
         self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
 
