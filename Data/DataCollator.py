@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from tokenizers import Tokenizer
 
-class DataCollatorForSentencePieceSpanMLM:
+class DataCollatorForHFUnigramSpanMLM:
     def __init__(
             self,
             tokenizer:Tokenizer,
