@@ -14,7 +14,8 @@ class DataCollatorForSentencePieceSpanMLM:
             mask_token='[MASK]',
             metaspace_token='▁',
             padding_argument={},
-            truncation_argument={}
+            truncation_argument={},
+            from_hf_datasets=False
         ):
         self.tokenizer = tokenizer
         self.pad_token = pad_token
@@ -28,14 +29,17 @@ class DataCollatorForSentencePieceSpanMLM:
         self.padding_argument['pad_token'] = self.pad_token
         self.padding_argument['pad_id'] = self.pad_id
         self.truncation_argument = truncation_argument
+        self.from_hf_datasets=from_hf_datasets
 
         if self.padding_argument:
             self.tokenizer.enable_padding(**self.padding_argument)
         if self.truncation_argument:
             self.tokenizer.enable_truncation(**self.truncation_argument)
 
-    def __call__(self, texts):
-        encodes = self.tokenizer.encode_batch(texts)
+    def __call__(self, batch):
+        if self.from_hf_datasets:
+            batch = [data['text'] for data in batch]
+        encodes = self.tokenizer.encode_batch(batch)
         label_ids = []
         masked_ids = []
         attention_mask = []
