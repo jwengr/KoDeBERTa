@@ -15,5 +15,5 @@
     "maskprob":0.15,
     "accelerator":"auto",
     "savedir":"/content/drive/MyDrive/KoDeBERTa/model",
-    "logdir":"/content/drive/MyDrive/KoDeBERTa/model"
+    "logdir":"/content/drive/MyDrive/KoDeBERTa/logs"
 }
