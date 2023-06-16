@@ -46,7 +46,7 @@ def train(args):
     ds.shuffle(seed=SEED, buffer_size=8_800_000)
     if args.collatefn == 'DataCollatorForHFUnigramSpanMLM':
         collate_fn = DataCollatorForHFUnigramSpanMLM(tokenizer, truncation_argument={'max_length':args.maxlength}, mask_prob=args.maskprob)
-    dl = DataLoader(ds, batch_size=batch_size, collate_fn=DataCollatorForHFUnigramSpanMLM(tokenizer, collate_fn))
+    dl = DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn)
 
     debertav3_pretrainer = LitDebertaV3ForPretrainingWithDeepSpeed(model_name=args.modelname, mask_id=mask_id, pad_id=pad_id, max_steps=max_steps, save_dir=args.savedir, ds_config=args.deepspeed_config)
 
