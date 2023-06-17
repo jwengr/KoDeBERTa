@@ -16,23 +16,44 @@ def unfreeze_model(model):
         param.requires_grad_(True)
 
 class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
-    def __init__(self, model_name, mask_id, pad_id, max_steps, save_dir, ds_config):
+    def __init__(
+            self, 
+            ds_config, 
+            model_name, 
+            mask_id, 
+            pad_id, 
+            current_step,
+            max_steps, 
+            save_per_steps,
+            generator_save_dir,
+            discriminator_save_dir,
+            load_pretrained=False,
+            generator_checkpoint_id=str(),
+            discriminator_checkpoint_id=str(),
+        ):
         super().__init__()
         self.save_hyperparameters()
         
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
         self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
-        model_engine, _, _, _ = deepspeed.initialize(model=self.generator, model_parameters=self.generator.parameters(), config=self.hparams.ds_config)
-        self.generator_engine = model_engine
-        
+        self.generator_engine, _, _, _  = deepspeed.initialize(model=self.generator, model_parameters=self.generator.parameters(), config=self.hparams.ds_config)
+
         self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.discriminator_config.num_labels = 2
         self.discriminator = DebertaV2ForTokenClassification(config=self.discriminator_config)
-        model_engine, _, _, _ = deepspeed.initialize(model=self.discriminator, model_parameters=self.discriminator.parameters(), config=self.hparams.ds_config)
-        self.discriminator_engine = model_engine
-        
+        self.discriminator_engine, _, _, _ = deepspeed.initialize(model=self.discriminator, model_parameters=self.discriminator.parameters(), config=self.hparams.ds_config)
+
         self.automatic_optimization = False
+        
+        if self.hparams.load_pretrained:
+            self.load_pretrained()
+
+    def load_pretrained(self):
+        self.generator.load_state_dict(torch.load(f'{self.hparams.generator_save_dir}/{self.hparams.generator_checkpoint_id}.pth'))
+        self.generator_engine.load_checkpoint(self.hparams.generator_save_dir, self.hparams.generator_checkpoint_id)
+        self.discriminator.load_state_dict(torch.load(f'{self.hparams.discriminator_save_dir}/{self.hparams.discriminator_checkpoint_id}.pth'))
+        self.discriminator_engine.load_checkpoint(self.hparams.discriminator_save_dir, self.hparams.discriminator_checkpoint_id)
 
     def discriminator_postprocessing(self):
         self.discriminator.deberta.embeddings.word_embeddings.weight = nn.Parameter(
@@ -57,6 +78,8 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
+        
+
         label_ids = batch['label_ids']
         masked_ids = batch['masked_ids']
         attention_mask = batch['attention_mask']
@@ -79,15 +102,20 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         freeze_model(self.discriminator)
 
         self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
-
-        if self.global_step>0 and self.global_step%(self.hparams.max_steps//20)==0:
-            torch.save(self.generator.state_dict(), f'generator_step={self.global_step}_loss={loss_generator.item()}.pth')
-            torch.save(self.discriminator.state_dict(), f'discriminator_step={self.global_step}_loss={loss_discriminator.item()}.pth')
-            self.generator_engine.save_checkpoint(self.hparams.save_dir, loss_generator.item(), client_sd = self.global_step)
-            self.discriminator_engine.save_checkpoint(self.hparams.save_dir, loss_discriminator.item(), client_sd = self.global_step)
+        
+        if (self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0) or (self.hparams.current_step == self.hparams.max_steps):
+            generator_checkpoint_id = f'generator_step={self.hparams.current_step}_loss={loss_generator.item()}'
+            torch.save(self.generator.state_dict(), f'{self.hparams.generator_save_dir}/{generator_checkpoint_id}.pth')
+            self.generator_engine.save_checkpoint(self.hparams.generator_save_dir, f'{generator_checkpoint_id}')
+            
+            discriminator_checkpoint_id = f'discriminator_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
+            torch.save(self.discriminator.state_dict(), f'{self.hparams.discriminator_save_dir}/{discriminator_checkpoint_id}.pth')
+            self.discriminator_engine.save_checkpoint(self.hparams.discriminator_save_dir, f'{discriminator_checkpoint_id}')
 
         gc.collect()
         torch.cuda.empty_cache()
+        
+        self.hparams.current_step = self.hparams.current_step+1
         
     def configure_optimizers(self):
         return
