@@ -17,6 +17,7 @@
 from collections.abc import Sequence
 from typing import Optional, Tuple, Union
 
+import deepspeed
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -466,6 +467,7 @@ class DebertaV2Encoder(nn.Module):
                 pos_ebd_size = self.position_buckets * 2
 
             self.rel_embeddings = nn.Embedding(pos_ebd_size, config.hidden_size)
+            deepspeed.zero.register_external_parameter(self, self.rel_embeddings.weight)
 
         self.norm_rel_ebd = [x.strip() for x in getattr(config, "norm_rel_ebd", "none").lower().split("|")]
 
