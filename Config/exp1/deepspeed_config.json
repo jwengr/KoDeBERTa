@@ -41,5 +41,5 @@
         "enabled": true,
         "theta": 0.5,
         "gamma": 0.001
-      }
+    }
 }
