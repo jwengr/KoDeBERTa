@@ -113,10 +113,10 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
             torch.save(self.discriminator.state_dict(), f'{self.hparams.discriminator_save_dir}/{discriminator_checkpoint_id}.pth')
             self.discriminator_engine.save_checkpoint(self.hparams.discriminator_save_dir, f'{discriminator_checkpoint_id}')
 
+        self.hparams.current_step = self.hparams.current_step+1
+
         gc.collect()
         torch.cuda.empty_cache()
-        
-        self.hparams.current_step = self.hparams.current_step+1
         
     def configure_optimizers(self):
         return
