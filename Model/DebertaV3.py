@@ -181,8 +181,8 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
         self.manual_backward(loss_generator)
         generator_optimizer.step()
         generator_scheduler.step()
-        freeze_model(self.generator)
         self.untoggle_optimizer(optimizer=generator_optimizer)
+        freeze_model(self.generator)
 
         unfreeze_model(self.discriminator)
         self.toggle_optimizer(optimizer=discriminator_optimizer)
