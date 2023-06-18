@@ -28,7 +28,7 @@
         "offload_optimizer": {
             "device": "cpu"
         },
-        "round_robin_gradients":true,
+        "round_robin_gradients":true
     },
     "activation_checkpointing": {
         "partition_activations":true,

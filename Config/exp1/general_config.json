@@ -4,7 +4,7 @@
     "model_name":"microsoft/deberta-v3-xsmall",
     "max_length":512,
     "batch_size":16,
-    "current_step":1,
+    "current_step":0,
     "save_per_steps":100000,
     "max_steps":256000000,
     "seed":0,
@@ -19,7 +19,7 @@
     "generator_save_dir":"/content/drive/MyDrive/KoDeBERTa/model/generator",
     "discriminator_save_dir":"/content/drive/MyDrive/KoDeBERTa/model/discriminator",
     "log_dir":"/content/drive/MyDrive/KoDeBERTa/logs",
-    "load_pretrained":true,
+    "load_pretrained":false,
     "generator_checkpoint_id":"generator_step=0_loss=11.875",
     "discriminator_checkpoint_id":"discriminator_step=0_loss=33.75"
 }
