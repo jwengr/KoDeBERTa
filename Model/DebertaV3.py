@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from transformers import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
+# from transformers import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
+from .custom.DebertaV2 import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
 
 
 def freeze_model(model):
@@ -47,10 +48,13 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         self.discriminator = DebertaV2ForTokenClassification(config=self.discriminator_config)
         self.discriminator_engine, _, _, _ = deepspeed.initialize(model=self.discriminator, model_parameters=self.discriminator.parameters(), config=self.hparams.ds_config)
 
-        self.automatic_optimization = False
-        
         if self.hparams.load_pretrained:
             self.load_pretrained()
+
+        self.generator_checkpoint_id = None
+        self.discriminator_checkpoint_id = None
+
+        self.automatic_optimization = False
 
     def load_pretrained(self):
         self.generator.load_state_dict(torch.load(f'{self.hparams.generator_save_dir}/{self.hparams.generator_checkpoint_id}.pth'))
@@ -104,26 +108,30 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         freeze_model(self.discriminator)
 
         self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
+        self.generator_checkpoint_id = f'generator_step={self.hparams.current_step}_loss={loss_generator.item()}'
+        self.discriminator_checkpoint_id = f'discriminator_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
         
-        if (self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0) or (self.hparams.current_step == self.hparams.max_steps):
-            generator_checkpoint_id = f'generator_step={self.hparams.current_step}_loss={loss_generator.item()}'
-            discriminator_checkpoint_id = f'discriminator_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
-            self.save(generator_checkpoint_id, discriminator_checkpoint_id)
+        if self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0:
+            self.save()
 
         self.hparams.current_step = self.hparams.current_step+1
 
         gc.collect()
         torch.cuda.empty_cache()
 
-    def save(self, generator_checkpoint_id, discriminator_checkpoint_id):
-        torch.save(self.generator.state_dict(), f'{self.hparams.generator_save_dir}/{generator_checkpoint_id}.pth')
-        self.generator_engine.save_checkpoint(self.hparams.generator_save_dir, f'{generator_checkpoint_id}')
-        torch.save(self.discriminator.state_dict(), f'{self.hparams.discriminator_save_dir}/{discriminator_checkpoint_id}.pth')
-        self.discriminator_engine.save_checkpoint(self.hparams.discriminator_save_dir, f'{discriminator_checkpoint_id}')
+    def save(self):
+        torch.save(self.generator.state_dict(), f'{self.hparams.generator_save_dir}/{self.generator_checkpoint_id}.pth')
+        self.generator_engine.save_checkpoint(self.hparams.generator_save_dir, f'{self.generator_checkpoint_id}')
+        torch.save(self.discriminator.state_dict(), f'{self.hparams.discriminator_save_dir}/{self.discriminator_checkpoint_id}.pth')
+        self.discriminator_engine.save_checkpoint(self.hparams.discriminator_save_dir, f'{self.discriminator_checkpoint_id}')
 
     def on_train_epoch_end(self):
-        self.save('epoch_end', 'epoch_end')
+        self.save()
         raise ValueError('Epoch end. You should reset dataset.')
+    
+    def on_train_end(self):
+        self.save()
+        return ValueError('Train end.')
         
     def configure_optimizers(self):
         return
