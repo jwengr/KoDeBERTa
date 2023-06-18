@@ -24,6 +24,7 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
             current_step,
             max_steps, 
             save_per_steps,
+            gradient_checkpointing,
             generator_save_dir,
             discriminator_save_dir,
             load_pretrained=False,
@@ -38,6 +39,7 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
         self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
+        self.generator._set_gradient_checkpointing(self.hparams.gradient_checkpointing)
         self.generator_engine, _, _, _  = deepspeed.initialize(model=self.generator, model_parameters=self.generator.parameters(), config=self.hparams.ds_config)
 
         self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
@@ -54,6 +56,7 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         self.generator.load_state_dict(torch.load(f'{self.hparams.generator_save_dir}/{self.hparams.generator_checkpoint_id}.pth'))
         self.generator_engine.load_checkpoint(self.hparams.generator_save_dir, self.hparams.generator_checkpoint_id)
         self.discriminator.load_state_dict(torch.load(f'{self.hparams.discriminator_save_dir}/{self.hparams.discriminator_checkpoint_id}.pth'))
+        self.discriminator._set_gradient_checkpointing(self.hparams.gradient_checkpointing)
         self.discriminator_engine.load_checkpoint(self.hparams.discriminator_save_dir, self.hparams.discriminator_checkpoint_id)
 
     def discriminator_postprocessing(self):
@@ -104,17 +107,23 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         
         if (self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0) or (self.hparams.current_step == self.hparams.max_steps):
             generator_checkpoint_id = f'generator_step={self.hparams.current_step}_loss={loss_generator.item()}'
-            torch.save(self.generator.state_dict(), f'{self.hparams.generator_save_dir}/{generator_checkpoint_id}.pth')
-            self.generator_engine.save_checkpoint(self.hparams.generator_save_dir, f'{generator_checkpoint_id}')
-            
             discriminator_checkpoint_id = f'discriminator_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
-            torch.save(self.discriminator.state_dict(), f'{self.hparams.discriminator_save_dir}/{discriminator_checkpoint_id}.pth')
-            self.discriminator_engine.save_checkpoint(self.hparams.discriminator_save_dir, f'{discriminator_checkpoint_id}')
+            self.save(generator_checkpoint_id, discriminator_checkpoint_id)
 
         self.hparams.current_step = self.hparams.current_step+1
 
         gc.collect()
         torch.cuda.empty_cache()
+
+    def save(self, generator_checkpoint_id, discriminator_checkpoint_id):
+        torch.save(self.generator.state_dict(), f'{self.hparams.generator_save_dir}/{generator_checkpoint_id}.pth')
+        self.generator_engine.save_checkpoint(self.hparams.generator_save_dir, f'{generator_checkpoint_id}')
+        torch.save(self.discriminator.state_dict(), f'{self.hparams.discriminator_save_dir}/{discriminator_checkpoint_id}.pth')
+        self.discriminator_engine.save_checkpoint(self.hparams.discriminator_save_dir, f'{discriminator_checkpoint_id}')
+
+    def on_train_epoch_end(self):
+        self.save('epoch_end', 'epoch_end')
+        raise ValueError('Epoch end. You should reset dataset.')
         
     def configure_optimizers(self):
         return
@@ -129,6 +138,7 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
             lr,
             num_warmup_steps,
             num_training_steps,
+            gradient_checkpointing,
         ):
         super().__init__()
         self.save_hyperparameters()
@@ -136,10 +146,12 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
         self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
+        self.generator._set_gradient_checkpointing(self.hparams.gradient_checkpointing)
 
         self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.discriminator_config.num_labels = 2
         self.discriminator = DebertaV2ForTokenClassification(config=self.discriminator_config)
+        self.discriminator._set_gradient_checkpointing(self.hparams.gradient_checkpointing)
 
         self.automatic_optimization = False
 
