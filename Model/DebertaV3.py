@@ -1,7 +1,6 @@
 import gc
 import torch
 import torch.nn as nn
-import deepspeed
 import pytorch_lightning as pl
 
 from transformers import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
@@ -32,6 +31,8 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
             discriminator_checkpoint_id=str(),
         ):
         super().__init__()
+        import deepspeed
+
         self.save_hyperparameters()
         
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
@@ -78,8 +79,6 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
-        
-
         label_ids = batch['label_ids']
         masked_ids = batch['masked_ids']
         attention_mask = batch['attention_mask']
@@ -120,3 +119,95 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
     def configure_optimizers(self):
         return
 
+
+class LitDebertaV3ForPretraining(pl.LightningModule):
+    def __init__(
+            self, 
+            model_name, 
+            mask_id, 
+            pad_id, 
+            lr,
+            num_warmup_steps,
+            num_training_steps,
+        ):
+        super().__init__()
+        self.save_hyperparameters()
+        
+        self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
+        self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
+        self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
+
+        self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
+        self.discriminator_config.num_labels = 2
+        self.discriminator = DebertaV2ForTokenClassification(config=self.discriminator_config)
+
+        self.automatic_optimization = False
+
+    def discriminator_postprocessing(self):
+        self.discriminator.deberta.embeddings.word_embeddings.weight = nn.Parameter(
+            self.generator.deberta.embeddings.word_embeddings.weight.detach() + self.discriminator.deberta.embeddings.word_embeddings.weight.detach(),
+            requires_grad=True
+        )
+
+    def forward_generator(self, masked_ids, attention_mask, label_ids):
+        labels = torch.where(masked_ids == self.hparams.mask_id, label_ids, -100).type_as(masked_ids)
+        outputs = self.generator(input_ids=masked_ids, attention_mask=attention_mask, labels=labels)
+        logits, loss = outputs.logits, outputs.loss
+        pred_ids = logits.argmax(dim=-1)
+        del labels
+        return pred_ids, loss
+    
+    def forward_discriminator(self, inputs_embeds, attention_mask, masked_ids):
+        labels = torch.zeros_like(masked_ids, dtype=torch.long, device=masked_ids.device, requires_grad=False)
+        labels[masked_ids==self.hparams.mask_id]=1
+        labels[masked_ids==self.hparams.pad_id]=-100
+        loss = self.discriminator(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels).loss
+        del labels
+        return loss
+
+    def training_step(self, batch, batch_idx):
+        label_ids = batch['label_ids']
+        masked_ids = batch['masked_ids']
+        attention_mask = batch['attention_mask']
+
+        generator_optimizer, discriminator_optimizer = self.optimizers()
+        generator_scheduler, discriminator_scheduler = self.lr_schedulers()
+        
+        unfreeze_model(self.generator)
+        self.toggle_optimizer(optimizer=generator_optimizer)
+        self.generator.zero_grad()
+        pred_ids, loss_generator = self.forward_generator(masked_ids=masked_ids, attention_mask=attention_mask, label_ids=label_ids)
+        pred_ids = pred_ids.detach()
+        self.manual_backward(loss_generator)
+        generator_optimizer.step()
+        generator_scheduler.step()
+        freeze_model(self.generator)
+        self.untoggle_optimizer(optimizer=generator_optimizer)
+
+        unfreeze_model(self.discriminator)
+        self.toggle_optimizer(optimizer=discriminator_optimizer)
+        self.discriminator.zero_grad()
+        inputs_embeds = self.generator.deberta.embeddings.word_embeddings(pred_ids).detach() + self.discriminator.deberta.embeddings.word_embeddings(pred_ids)
+        loss_discriminator = self.forward_discriminator(inputs_embeds=inputs_embeds, attention_mask=attention_mask, masked_ids=masked_ids)
+        loss_discriminator = loss_discriminator * 50
+        self.manual_backward(loss_discriminator)
+        discriminator_optimizer.step()
+        discriminator_scheduler.step()
+        self.untoggle_optimizer(optimizer=discriminator_optimizer)
+        freeze_model(self.discriminator)
+
+        self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
+        
+        gc.collect()
+        torch.cuda.empty_cache()
+                
+    def configure_optimizers(self):
+        from torch.optim import AdamW
+        from transformers import get_linear_schedule_with_warmup
+
+        generator_optimizer = AdamW(self.generator.parameters(), lr=self.hparams.lr, betas=(0.9, 0.999), weight_decay=0.01)
+        generator_scheduler = get_linear_schedule_with_warmup(generator_optimizer, num_warmup_steps=self.hparams.num_warmup_steps, num_training_steps=self.hparams.num_training_steps)
+        discriminator_optimizer = AdamW(self.discriminator.parameters(), lr=self.hparams.lr, betas=(0.9, 0.999), weight_decay=0.01)
+        discriminator_scheduler = get_linear_schedule_with_warmup(discriminator_optimizer, num_warmup_steps=self.hparams.num_warmup_steps, num_training_steps=self.hparams.num_training_steps)
+
+        return [generator_optimizer, discriminator_optimizer], [generator_scheduler, discriminator_scheduler]

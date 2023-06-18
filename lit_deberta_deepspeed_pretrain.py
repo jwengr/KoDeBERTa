@@ -26,16 +26,10 @@ def get_args():
     return args
 
 def train(args):
-    SEED=args.seed
-    pl.seed_everything(SEED)
+    pl.seed_everything(args.seed)
     tokenizer = Tokenizer.from_file(args.tokenizer_path)
     mask_id = tokenizer.get_vocab()[args.mask_token]
     pad_id = tokenizer.get_vocab()[args.pad_token]
-
-    batch_size = args.batch_size
-    max_steps = args.max_steps
-    if max_steps==-1:
-        max_steps = 500_000 * (8192//batch_size)
 
     def gen():
         with open(args.datapath, encoding=args.encoding) as f:
@@ -43,18 +37,32 @@ def train(args):
                 yield line
 
     ds = IterableDataset.from_generator(gen)
-    ds.shuffle(seed=SEED, buffer_size=8_800_000)
+    if args.shuffle:
+        ds.shuffle(seed=args.seed, buffer_size=8_800_000)
     if args.collate_fn == 'DataCollatorForHFUnigramSpanMLM':
         collate_fn = DataCollatorForHFUnigramSpanMLM(tokenizer, truncation_argument={'max_length':args.max_length}, mask_prob=args.mask_prob)
-    dl = DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn)
+    dl = DataLoader(ds, batch_size=args.batch_size, collate_fn=collate_fn)
 
-    debertav3_pretrainer = LitDebertaV3ForPretrainingWithDeepSpeed(model_name=args.model_name, mask_id=mask_id, pad_id=pad_id, max_steps=max_steps, save_dir=args.save_dir, ds_config=args.deepspeed_config)
+    debertav3_pretrainer = LitDebertaV3ForPretrainingWithDeepSpeed(
+        ds_config=args.deepspeed_config,
+        model_name=args.model_name,
+        mask_id=mask_id, 
+        pad_id=pad_id, 
+        current_step=args.current_step,
+        max_steps=args.max_steps, 
+        save_per_steps=args.save_per_steps,
+        generator_save_dir=args.generator_save_dir,
+        discriminator_save_dir=args.discriminator_save_dir,
+        load_pretrained=args.load_pretrained,
+        generator_checkpoint_id=args.generator_checkpoint_id,
+        discriminator_checkpoint_id=args.discriminator_checkpoint_id
+    )
 
     logger = TensorBoardLogger(args.log_dir, name="LitDebertaV3ForPretrainingWithDeepSpeed_DataCollatorForHFUnigramSpanMLM")
                                
     trainer = pl.Trainer(
         accelerator=args.pl_accelerator,
-        max_steps=max_steps,
+        max_steps=args.max_steps,
         logger=logger
     )
 
