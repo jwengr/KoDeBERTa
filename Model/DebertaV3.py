@@ -100,7 +100,9 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         self.discriminator_engine.step()
         freeze_model(self.discriminator)
 
-        self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
+        tensorboard = self.logger.experiment
+        tensorboard.add_scalar("Loss_G", loss_generator, self.hparams.current_step)
+        tensorboard.add_scalar("Loss_D", loss_discriminator, self.hparams.current_step)
         
         if (self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0) or (self.hparams.current_step == self.hparams.max_steps):
             generator_checkpoint_id = f'generator_step={self.hparams.current_step}_loss={loss_generator.item()}'
