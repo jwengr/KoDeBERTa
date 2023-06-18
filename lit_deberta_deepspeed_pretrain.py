@@ -32,7 +32,7 @@ def train(args):
     pad_id = tokenizer.get_vocab()[args.pad_token]
 
     def gen():
-        with open(args.datapath, encoding=args.encoding) as f:
+        with open(args.data_path, encoding=args.encoding) as f:
             for line in f:
                 yield line
 
