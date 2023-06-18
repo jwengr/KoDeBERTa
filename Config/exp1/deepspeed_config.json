@@ -36,5 +36,10 @@
         "contiguous_memory_optimization":true,
         "number_checkpoints":12,
         "synchronize_checkpoint_boundary":true
-    }
+    },
+    "progressive_layer_drop": {
+        "enabled": true,
+        "theta": 0.5,
+        "gamma": 0.001
+      }
 }

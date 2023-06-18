@@ -20,7 +20,7 @@ from typing import Optional, Tuple, Union
 import torch
 import torch.utils.checkpoint
 from torch import nn
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, LayerNorm, MSELoss
 
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import (
@@ -53,24 +53,6 @@ DEBERTA_V2_PRETRAINED_MODEL_ARCHIVE_LIST = [
 def softmax_backward_data(parent, grad_output, output, dim, self):
     from torch import _softmax_backward_data
     return _softmax_backward_data(grad_output, output, parent.dim, self.dtype)
-
-
-class LayerNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-12):
-        """Construct a layernorm module in the TF style (epsilon inside the square root).
-        """
-        super(LayerNorm, self).__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.bias = nn.Parameter(torch.zeros(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(self, x):
-        pdtype = x.dtype
-        x = x.float()
-        u = x.mean(-1, keepdim=True)
-        s = (x - u).pow(2).mean(-1, keepdim=True)
-        x = (x - u) / torch.sqrt(s + self.variance_epsilon)
-        return self.weight * x.to(pdtype) + self.bias
 
 # Copied from transformers.models.deberta.modeling_deberta.ContextPooler
 class ContextPooler(nn.Module):
@@ -378,23 +360,53 @@ class DebertaV2Layer(nn.Module):
         relative_pos=None,
         rel_embeddings=None,
         output_attentions=False,
+        action=1,
+        keep_prob=1.0,
     ):
-        attention_output = self.attention(
-            hidden_states,
-            attention_mask,
-            output_attentions=output_attentions,
-            query_states=query_states,
-            relative_pos=relative_pos,
-            rel_embeddings=rel_embeddings,
-        )
-        if output_attentions:
-            attention_output, att_matrix = attention_output
-        intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
-        if output_attentions:
-            return (layer_output, att_matrix)
+        if action==0:
+            attention_output = self.attention(
+                hidden_states,
+                attention_mask,
+                output_attentions=output_attentions,
+                query_states=query_states,
+                relative_pos=relative_pos,
+                rel_embeddings=rel_embeddings,
+            )
+            if output_attentions:
+                attention_output, att_matrix = attention_output
+            intermediate_output = self.intermediate(attention_output)
+            layer_output = self.output(intermediate_output, attention_output)
+            if output_attentions:
+                return (layer_output, att_matrix)
+            else:
+                return layer_output
         else:
-            return layer_output
+            input_layer_norm = self.attention.output.LayerNorm(hidden_states)
+            attention_output = self.attention.self(
+                input_layer_norm,
+                attention_mask,
+                output_attentions=output_attentions,
+                query_states=query_states,
+                relative_pos=relative_pos,
+                rel_embeddings=rel_embeddings,
+            )
+            if output_attentions:
+                attention_output, att_matrix = attention_output
+            attention_output = self.attention.output.dense(attention_output)
+            attention_output = self.attention.output.dropout(attention_output)
+            attention_output = attention_output * 1 / keep_prob
+            intermediate_input = hidden_states + attention_output
+
+            intermediate_layer_norm = self.output.LayerNorm(intermediate_input)
+            intermediate_output = self.intermediate(intermediate_layer_norm)
+            layer_output = self.output.dense(intermediate_output)
+            layer_output = self.output.dropout(layer_output)
+            layer_output = layer_output * 1 / keep_prob
+            layer_output = layer_output + intermediate_input
+            if output_attentions:
+                return (layer_output, att_matrix)
+            else:
+                return layer_output
 
 
 class ConvLayer(nn.Module):
@@ -466,7 +478,7 @@ class DebertaV2Encoder(nn.Module):
     def get_rel_embedding(self):
         rel_embeddings = self.rel_embeddings.weight if self.relative_attention else None
         if rel_embeddings is not None and ("layer_norm" in self.norm_rel_ebd):
-            rel_embeddings = self.LayerNorm(rel_embeddings.unsqueeze(0)).squeeze(0)
+            rel_embeddings = self.LayerNorm(rel_embeddings)
         return rel_embeddings
 
     def get_attention_mask(self, attention_mask):

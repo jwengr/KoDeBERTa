@@ -3,9 +3,6 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-# from transformers import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
-from .custom.DebertaV2 import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
-
 
 def freeze_model(model):
     for param in model.parameters():
@@ -34,6 +31,8 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         ):
         super().__init__()
         import deepspeed
+
+        from .custom.DebertaV2 import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
 
         self.save_hyperparameters()
         
@@ -149,6 +148,8 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
             gradient_checkpointing,
         ):
         super().__init__()
+        from transformers import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
+        
         self.save_hyperparameters()
         
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
