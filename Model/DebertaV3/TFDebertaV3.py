@@ -41,13 +41,13 @@ class TFDebertaV3ForPretraining(tf.keras.Model):
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
         self.generator = TFDebertaV2ForMaskedLM(self.generator_config, name="generator")
         self.generator_scheduler = LinearSchedulerWithWarmUp(self.learning_rate, self.warmup_steps, self.total_steps)
-        self.generator_optimizer = tf.keras.optimizers.AdamW(learning_rate=self.generator_scheduler, beta_1=0.9, beta_2=0.999, weith_decay=0.01)
+        self.generator_optimizer = tf.keras.optimizers.AdamW(learning_rate=self.learning_rate, beta_1=0.9, beta_2=0.999, weith_decay=0.01, clipnorm=1.0)
 
         self.discriminator_config = DebertaV2Config.from_pretrained(self.model_name)
         self.discriminator_config.num_labels = 2
         self.discriminator = TFDebertaV2ForTokenClassification(self.discriminator_config, name="discriminator")
         self.discriminator_scheduler = LinearSchedulerWithWarmUp(self.learning_rate, self.warmup_steps, self.total_steps)
-        self.discriminator_optimizer = tf.keras.optimizers.AdamW(learning_rate=self.discriminator_scheduler, beta_1=0.9, beta_2=0.999, weith_decay=0.01)
+        self.discriminator_optimizer = tf.keras.optimizers.AdamW(learning_rate=self.learning_rate, beta_1=0.9, beta_2=0.999, weith_decay=0.01, clipnorm=1.0)
         
 
     def forward_generator(self, masked_ids, attention_mask, label_ids):
@@ -64,24 +64,19 @@ class TFDebertaV3ForPretraining(tf.keras.Model):
         loss = self.discriminator(inputs_embeds=inputs_embeds, labels=labels, attention_mask=attention_mask).loss
         return loss
     
-    def __call__(self, masked_ids, attention_mask, label_ids):
-        self.generator.trainable = True
+    def __call__(self, masked_ids, attention_mask, label_ids, current_step):        
         with tf.GradientTape() as generator_tape:
             pred_ids, loss_generator = self.forward_generator(masked_ids=masked_ids, attention_mask=attention_mask, label_ids=label_ids)
             pred_ids = tf.stop_gradient(pred_ids)
-
         generator_gradients = generator_tape.gradient(loss_generator, self.generator.trainable_variables)
+        self.generator_optimizer.learning_rate = self.generator_scheduler(current_step)
         self.generator_optimizer.apply_gradients(zip(generator_gradients, self.generator.trainable_variables))
-        self.generator_scheduler.step()
-        self.generator.trainable = False
 
-        self.discriminator.trainable = True
         with tf.GradientTape() as discriminator_tape:
             loss_discriminator = self.forward_discriminator(pred_ids=pred_ids, attention_mask=attention_mask, masked_ids=masked_ids)
             loss_discriminator = loss_discriminator * 50
         discriminator_gradients = discriminator_tape.gradient(loss_discriminator, self.discriminator.trainable_variables)
+        self.discriminator_optimizer.learning_rate = self.discriminator_scheduler(current_step)
         self.discriminator_optimizer.apply_gradients(zip(discriminator_gradients, self.discriminator.trainable_variables))
-        self.discriminator_scheduler.step()
-        self.discriminator.trainable = False
 
         return loss_generator, loss_discriminator
