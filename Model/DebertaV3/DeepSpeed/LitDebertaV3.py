@@ -32,7 +32,7 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         super().__init__()
         import deepspeed
 
-        from .custom.DebertaV2 import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
+        from .CustomDebertaV2 import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
 
         self.save_hyperparameters()
         
