@@ -1,7 +1,8 @@
 import random
 import numpy as np
-import torch 
+import torch
 import torch.nn as nn
+import tensorflow as tf
 
 from tokenizers import Tokenizer
 
@@ -15,7 +16,8 @@ class DataCollatorForHFUnigramSpanMLM:
             metaspace_token='▁',
             padding_argument={},
             truncation_argument={},
-            from_hf_datasets=False
+            from_hf_datasets=False,
+            return_tensors='pt',
         ):
         self.tokenizer = tokenizer
         self.pad_token = pad_token
@@ -30,6 +32,7 @@ class DataCollatorForHFUnigramSpanMLM:
         self.padding_argument['pad_id'] = self.pad_id
         self.truncation_argument = truncation_argument
         self.from_hf_datasets=from_hf_datasets
+        self.return_tensors=return_tensors
 
         if self.padding_argument:
             self.tokenizer.enable_padding(**self.padding_argument)
@@ -50,10 +53,23 @@ class DataCollatorForHFUnigramSpanMLM:
             masked_ids.append(masked_id)
             attention_mask.append(encode.attention_mask)
 
+        if self.return_tensors=='pt':
+            label_ids = torch.LongTensor(label_ids)
+            masked_ids = torch.LongTensor(masked_ids)
+            attention_mask = torch.LongTensor(attention_mask)
+        elif self.return_tensors=='np':
+            label_ids = np.array(label_ids)
+            masked_ids = np.array(masked_ids)
+            attention_mask = np.array(attention_mask)
+        elif self.return_tensors=='tf':
+            label_ids = tf.convert_to_tensor(label_ids)
+            masked_ids = tf.convert_to_tensor(masked_ids)
+            attention_mask = tf.convert_to_tensor(attention_mask)
+
         batch = {
-            'label_ids' : torch.LongTensor(label_ids),
-            'masked_ids' : torch.LongTensor(masked_ids),
-            'attention_mask' : torch.LongTensor(attention_mask)
+            'label_ids' : label_ids,
+            'masked_ids' : masked_ids,
+            'attention_mask' : masked_ids
         }
 
         return batch
@@ -80,7 +96,3 @@ class DataCollatorForHFUnigramSpanMLM:
                 continue
         return encode_ids_mlm
         
-
-
-class DataCollatorForMLM:
-    pass

@@ -12,7 +12,7 @@ def unfreeze_model(model):
     for param in model.parameters():
         param.requires_grad_(True)
 
-class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
+class LitDebertaV3ForPretrainingWithDeepSpeedZeroS3(pl.LightningModule):
     def __init__(
             self, 
             ds_config, 
@@ -136,7 +136,7 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         return
 
 
-class LitDebertaV3ForPretraining(pl.LightningModule):
+class LitDebertaV3ForPretrainingWithDeepSpeedZeroS2(pl.LightningModule):
     def __init__(
             self, 
             model_name, 
@@ -232,3 +232,4 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
         discriminator_scheduler = get_linear_schedule_with_warmup(discriminator_optimizer, num_warmup_steps=self.hparams.num_warmup_steps, num_training_steps=self.hparams.num_training_steps)
 
         return [generator_optimizer, discriminator_optimizer], [generator_scheduler, discriminator_scheduler]
+
