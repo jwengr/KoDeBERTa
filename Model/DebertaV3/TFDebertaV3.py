@@ -58,7 +58,7 @@ class TFDebertaV3ForPretraining(tf.keras.Model):
         pred_ids = tf.stop_gradient(pred_ids)
         inputs_embeds = tf.stop_gradient(self.generator.deberta.embeddings(pred_ids)) + self.discriminator.deberta.embeddings(pred_ids)
         labels = tf.where(masked_ids == self.pad_id, -100, tf.where(masked_ids == self.mask_id, 1, 0))
-        loss = self.discriminator(**{"labels": labels, "attention_mask":attention_mask}, inputs_embeds=inputs_embeds).loss
+        loss = self.discriminator(**{"input_ids":None, "inputs_embeds": inputs_embeds, "labels": labels, "attention_mask":attention_mask}).loss
         return loss
     
     def call(self, masked_ids, attention_mask, label_ids, current_step):        
