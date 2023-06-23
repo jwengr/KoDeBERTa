@@ -32,7 +32,7 @@ class LitDebertaV3ForPretrainingWithDeepSpeedZeroS3(pl.LightningModule):
         super().__init__()
         import deepspeed
 
-        from .CustomDebertaV2 import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
+        from .CustomDebertaV2DeepSpeed import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
 
         self.save_hyperparameters()
         
@@ -270,21 +270,24 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
             num_warmup_steps,
             num_training_steps,
             gradient_checkpointing,
+            current_step,
         ):
         super().__init__()
-        from transformers import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
+        from .CustomDebertaV2 import DebertaV2Config, DebertaV2ForMaskedLM, DebertaV2ForTokenClassification
         
         self.save_hyperparameters()
         
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
         self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
-        self.generator.enabling_gradient_checkpointing(self.hparams.gradient_checkpointing)
 
         self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.discriminator_config.num_labels = 2
         self.discriminator = DebertaV2ForTokenClassification(config=self.discriminator_config)
-        self.discriminator.enabling_gradient_checkpointing(self.hparams.gradient_checkpointing)
+
+        if self.hparams.gradient_checkpointing:
+            self.generator.gradient_checkpointing_enable()
+            self.discriminator.gradient_checkpointing_enable()
 
         self.automatic_optimization = False
 
@@ -303,9 +306,7 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
         return pred_ids, loss
     
     def forward_discriminator(self, inputs_embeds, attention_mask, masked_ids):
-        labels = torch.zeros_like(masked_ids, dtype=torch.long, device=masked_ids.device, requires_grad=False)
-        labels[masked_ids==self.hparams.mask_id]=1
-        labels[masked_ids==self.hparams.pad_id]=-100
+        labels = torch.where(masked_ids == self.hparams.mask_id, 1, torch.where(masked_ids == self.hparams.pad_id, -100, 0)).type_as(masked_ids)
         loss = self.discriminator(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels).loss
         del labels
         return loss
@@ -320,10 +321,11 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
         
         unfreeze_model(self.generator)
         self.toggle_optimizer(optimizer=generator_optimizer)
-        self.generator.zero_grad()
         pred_ids, loss_generator = self.forward_generator(masked_ids=masked_ids, attention_mask=attention_mask, label_ids=label_ids)
         pred_ids = pred_ids.detach()
+        generator_optimizer.zero_grad()
         self.manual_backward(loss_generator)
+        self.clip_gradients(generator_optimizer, gradient_clip_val=1.0)
         generator_optimizer.step()
         generator_scheduler.step()
         self.untoggle_optimizer(optimizer=generator_optimizer)
@@ -331,17 +333,19 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
 
         unfreeze_model(self.discriminator)
         self.toggle_optimizer(optimizer=discriminator_optimizer)
-        self.discriminator.zero_grad()
         inputs_embeds = self.generator.deberta.embeddings.word_embeddings(pred_ids).detach() + self.discriminator.deberta.embeddings.word_embeddings(pred_ids)
         loss_discriminator = self.forward_discriminator(inputs_embeds=inputs_embeds, attention_mask=attention_mask, masked_ids=masked_ids)
         loss_discriminator = loss_discriminator * 50
+        discriminator_optimizer.zero_grad()
         self.manual_backward(loss_discriminator)
+        self.clip_gradients(discriminator_optimizer, gradient_clip_val=1.0)
         discriminator_optimizer.step()
         discriminator_scheduler.step()
         self.untoggle_optimizer(optimizer=discriminator_optimizer)
         freeze_model(self.discriminator)
 
-        self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
+        self.hparams.current_step  = self.hparams.current_step + 1
+        self.log_dict({"current_step":self.hparams.current_step, "Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
         
         gc.collect()
         torch.cuda.empty_cache()

@@ -17,6 +17,7 @@
 from collections.abc import Sequence
 from typing import Optional, Tuple, Union
 
+import deepspeed
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -34,8 +35,6 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import add_code_sample_docstrings, add_start_docstrings, add_start_docstrings_to_model_forward, logging
 from transformers.models.deberta_v2.configuration_deberta_v2 import DebertaV2Config
-
-import time
 
 
 logger = logging.get_logger(__name__)
@@ -468,6 +467,7 @@ class DebertaV2Encoder(nn.Module):
                 pos_ebd_size = self.position_buckets * 2
 
             self.rel_embeddings = nn.Embedding(pos_ebd_size, config.hidden_size)
+            deepspeed.zero.register_external_parameter(self, self.rel_embeddings.weight)
 
         self.norm_rel_ebd = [x.strip() for x in getattr(config, "norm_rel_ebd", "none").lower().split("|")]
 
@@ -790,7 +790,6 @@ class DisentangledSelfAttention(nn.Module):
     def disentangled_attention_bias(self, query_layer, key_layer, relative_pos, rel_embeddings, scale_factor):
         if relative_pos is None:
             q = query_layer.size(-2)
-            start = time.time()
             relative_pos = build_relative_position(
                 q,
                 key_layer.size(-2),
@@ -798,86 +797,56 @@ class DisentangledSelfAttention(nn.Module):
                 max_position=self.max_relative_positions,
                 device=query_layer.device,
             )
-            print(f"build_relative_position: {time.time() - start}")
         if relative_pos.dim() == 2:
-            start = time.time()
             relative_pos = relative_pos.unsqueeze(0).unsqueeze(0)
-            print(f"relative_pos.unsqueeze(0).unsqueeze(0): {time.time() - start}")
         elif relative_pos.dim() == 3:
-            start = time.time()
             relative_pos = relative_pos.unsqueeze(1)
-            print(f"relative_pos.unsqueeze(1): {time.time() - start}")
         # bsz x height x query x key
         elif relative_pos.dim() != 4:
             raise ValueError(f"Relative position ids must be of dim 2 or 3 or 4. {relative_pos.dim()}")
 
         att_span = self.pos_ebd_size
-        start = time.time()
         relative_pos = relative_pos.long().to(query_layer.device)
-        print(f"relative_pos.long().to(query_layer.device): {time.time() - start}")
 
-        start= time.time()
         rel_embeddings = rel_embeddings[0 : att_span * 2, :].unsqueeze(0)
-        print(f"rel_embeddings[0 : att_span * 2, :].unsqueeze(0): {time.time() - start}")
         if self.share_att_key:
-            start = time.time()
             pos_query_layer = self.transpose_for_scores(
                 self.query_proj(rel_embeddings), self.num_attention_heads
             ).repeat(query_layer.size(0) // self.num_attention_heads, 1, 1)
-            print(f"share_att_key pos_query_layer self.transpose_for_scores: {time.time() - start}")
-            start = time.time()
             pos_key_layer = self.transpose_for_scores(self.key_proj(rel_embeddings), self.num_attention_heads).repeat(
                 query_layer.size(0) // self.num_attention_heads, 1, 1
             )
-            print(f"share_att_key pos_key_layer self.transpose_for_scores: {time.time() - start}")
         else:
             if "c2p" in self.pos_att_type:
-                start = time.time()
                 pos_key_layer = self.transpose_for_scores(
                     self.pos_key_proj(rel_embeddings), self.num_attention_heads
                 ).repeat(
                     query_layer.size(0) // self.num_attention_heads, 1, 1
                 )  # .split(self.all_head_size, dim=-1)
-                print(f"c2p pos_key_layer self.transpose_for_scores: {time.time() - start}")
             if "p2c" in self.pos_att_type:
-                start = time.time()
                 pos_query_layer = self.transpose_for_scores(
                     self.pos_query_proj(rel_embeddings), self.num_attention_heads
                 ).repeat(
                     query_layer.size(0) // self.num_attention_heads, 1, 1
                 )  # .split(self.all_head_size, dim=-1)
-                print(f"p2c pos_query_layer self.transpose_for_scores: {time.time() - start}")
 
         score = 0
         # content->position
         if "c2p" in self.pos_att_type:
-            start = time.time()
             scale = torch.sqrt(torch.tensor(pos_key_layer.size(-1), dtype=torch.float) * scale_factor)
-            print(f"c2p scale: {time.time() - start}")
-            start = time.time()
             c2p_att = torch.bmm(query_layer, pos_key_layer.transpose(-1, -2))
-            print(f"c2p_att: {time.time() - start}")
-            start = time.time()
             c2p_pos = torch.clamp(relative_pos + att_span, 0, att_span * 2 - 1)
-            print(f"c2p_pos: {time.time() - start}")
-            start = time.time()
             c2p_att = torch.gather(
                 c2p_att,
                 dim=-1,
                 index=c2p_pos.squeeze(0).expand([query_layer.size(0), query_layer.size(1), relative_pos.size(-1)]),
             )
-            print(f"c2p_att: {time.time() - start}")
-            start = time.time()
             score += c2p_att / scale.to(dtype=c2p_att.dtype)
-            print(f"score += c2p_att / scale.to(dtype=c2p_att.dtype): {time.time() - start}")
 
         # position->content
         if "p2c" in self.pos_att_type:
-            start = time.time()
             scale = torch.sqrt(torch.tensor(pos_query_layer.size(-1), dtype=torch.float) * scale_factor)
-            print(f"p2c scale: {time.time() - start}")
             if key_layer.size(-2) != query_layer.size(-2):
-                start = time.time()
                 r_pos = build_relative_position(
                     key_layer.size(-2),
                     key_layer.size(-2),
@@ -886,26 +855,17 @@ class DisentangledSelfAttention(nn.Module):
                     device=query_layer.device,
                 )
                 r_pos = r_pos.unsqueeze(0)
-                print(f"p2c r_pos = build_relative_position: {time.time() - start}")
             else:
                 r_pos = relative_pos
 
-            start = time.time()
             p2c_pos = torch.clamp(-r_pos + att_span, 0, att_span * 2 - 1)
-            print(f"p2c_pos: {time.time() - start}")
-            start = time.time()
             p2c_att = torch.bmm(key_layer, pos_query_layer.transpose(-1, -2))
-            print(f"p2c_att: {time.time() - start}")
-            start = time.time()
             p2c_att = torch.gather(
                 p2c_att,
                 dim=-1,
                 index=p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)]),
             ).transpose(-1, -2)
-            print(f"p2c_att: {time.time() - start}")
-            start = time.time()
             score += p2c_att / scale.to(dtype=p2c_att.dtype)
-            print(f"score += p2c_att / scale.to(dtype=p2c_att.dtype): {time.time() - start}")
 
         return score
 
