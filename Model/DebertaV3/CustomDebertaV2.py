@@ -292,14 +292,18 @@ class DebertaV2Attention(nn.Module):
         query_states=None,
         relative_pos=None,
         rel_embeddings=None,
+        c2p_pos_index=None,
+        p2c_pos_index=None,
     ):
-        self_output = self.self(
+        self_output, c2p_pos_index, p2c_pos_index = self.self(
             hidden_states,
             attention_mask,
             output_attentions,
             query_states=query_states,
             relative_pos=relative_pos,
             rel_embeddings=rel_embeddings,
+            c2p_pos_index=c2p_pos_index,
+            p2c_pos_index=p2c_pos_index,
         )
         if output_attentions:
             self_output, att_matrix = self_output
@@ -307,10 +311,7 @@ class DebertaV2Attention(nn.Module):
             query_states = hidden_states
         attention_output = self.output(self_output, query_states)
 
-        if output_attentions:
-            return (attention_output, att_matrix)
-        else:
-            return attention_output
+        return attention_output, c2p_pos_index, p2c_pos_index
 
 
 # Copied from transformers.models.bert.modeling_bert.BertIntermediate with Bert->DebertaV2
@@ -360,39 +361,39 @@ class DebertaV2Layer(nn.Module):
         query_states=None,
         relative_pos=None,
         rel_embeddings=None,
-        output_attentions=False,
+        c2p_pos_index=None,
+        p2c_pos_index=None,
         action=0,
         keep_prob=1.0,
+        output_attentions=False,
+
     ):
         if action==0:
-            attention_output = self.attention(
+            attention_output, c2p_pos_index, p2c_pos_index = self.attention(
                 hidden_states,
                 attention_mask,
                 output_attentions=output_attentions,
                 query_states=query_states,
                 relative_pos=relative_pos,
                 rel_embeddings=rel_embeddings,
+                c2p_pos_index=c2p_pos_index,
+                p2c_pos_index=p2c_pos_index,
             )
-            if output_attentions:
-                attention_output, att_matrix = attention_output
             intermediate_output = self.intermediate(attention_output)
             layer_output = self.output(intermediate_output, attention_output)
-            if output_attentions:
-                return (layer_output, att_matrix)
-            else:
-                return layer_output
+            return (layer_output, c2p_pos_index, p2c_pos_index)
         else:
             input_layer_norm = self.attention.output.LayerNorm(hidden_states)
-            attention_output = self.attention.self(
+            attention_output, c2p_pos_index, p2c_pos_index = self.attention.self(
                 input_layer_norm,
                 attention_mask,
                 output_attentions=output_attentions,
                 query_states=query_states,
                 relative_pos=relative_pos,
                 rel_embeddings=rel_embeddings,
+                c2p_pos_index=c2p_pos_index,
+                p2c_pos_index=p2c_pos_index,
             )
-            if output_attentions:
-                attention_output, att_matrix = attention_output
             attention_output = self.attention.output.dense(attention_output)
             attention_output = self.attention.output.dropout(attention_output)
             attention_output = attention_output * 1 / keep_prob
@@ -404,10 +405,7 @@ class DebertaV2Layer(nn.Module):
             layer_output = self.output.dropout(layer_output)
             layer_output = layer_output * 1 / keep_prob
             layer_output = layer_output + intermediate_input
-            if output_attentions:
-                return (layer_output, att_matrix)
-            else:
-                return layer_output
+            return (layer_output, c2p_pos_index, p2c_pos_index)
 
 
 class ConvLayer(nn.Module):
@@ -528,34 +526,36 @@ class DebertaV2Encoder(nn.Module):
         else:
             next_kv = hidden_states
         rel_embeddings = self.get_rel_embedding()
+        c2p_pos_index = None
+        p2c_pos_index = None
         output_states = next_kv
         for i, layer_module in enumerate(self.layer):
-            if output_hidden_states:
-                all_hidden_states = all_hidden_states + (output_states,)
-
             if self.gradient_checkpointing and self.training:
-
                 def create_custom_forward(module):
                     def custom_forward(*inputs):
                         return module(*inputs, output_attentions)
 
                     return custom_forward
 
-                output_states = torch.utils.checkpoint.checkpoint(
+                output_states, c2p_pos_index, p2c_pos_index = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(layer_module),
                     next_kv,
                     attention_mask,
                     query_states,
                     relative_pos,
                     rel_embeddings,
+                    c2p_pos_index,
+                    p2c_pos_index,
                 )
             else:
-                output_states = layer_module(
+                output_states, c2p_pos_index, p2c_pos_index = layer_module(
                     next_kv,
                     attention_mask,
                     query_states=query_states,
                     relative_pos=relative_pos,
                     rel_embeddings=rel_embeddings,
+                    c2p_pos_index=c2p_pos_index,
+                    p2c_pos_index=p2c_pos_index,
                     output_attentions=output_attentions,
                 )
 
@@ -710,6 +710,8 @@ class DisentangledSelfAttention(nn.Module):
         query_states=None,
         relative_pos=None,
         rel_embeddings=None,
+        c2p_pos_index=None,
+        p2c_pos_index=None,
     ):
         """
         Call the module
@@ -757,8 +759,8 @@ class DisentangledSelfAttention(nn.Module):
         attention_scores = torch.bmm(query_layer, key_layer.transpose(-1, -2) / scale.to(dtype=query_layer.dtype))
         if self.relative_attention:
             rel_embeddings = self.pos_dropout(rel_embeddings)
-            rel_att = self.disentangled_attention_bias(
-                query_layer, key_layer, relative_pos, rel_embeddings, scale_factor
+            rel_att, c2p_pos_index, p2c_pos_index = self.disentangled_attention_bias(
+                query_layer, key_layer, relative_pos, rel_embeddings, scale_factor, c2p_pos_index, p2c_pos_index
             )
 
         if rel_att is not None:
@@ -781,12 +783,9 @@ class DisentangledSelfAttention(nn.Module):
         )
         new_context_layer_shape = context_layer.size()[:-2] + (-1,)
         context_layer = context_layer.view(new_context_layer_shape)
-        if output_attentions:
-            return (context_layer, attention_probs)
-        else:
-            return context_layer
+        return (context_layer, c2p_pos_index, p2c_pos_index)
 
-    def disentangled_attention_bias(self, query_layer, key_layer, relative_pos, rel_embeddings, scale_factor):
+    def disentangled_attention_bias(self, query_layer, key_layer, relative_pos, rel_embeddings, scale_factor, c2p_pos_index, p2c_pos_index):
         if relative_pos is None:
             q = query_layer.size(-2)
             relative_pos = build_relative_position(
@@ -812,41 +811,34 @@ class DisentangledSelfAttention(nn.Module):
             pos_query_layer = self.transpose_for_scores(
                 self.query_proj(rel_embeddings), self.num_attention_heads
             )
-            pos_key_layer = self.transpose_for_scores(
-                self.key_proj(rel_embeddings), self.num_attention_heads
-            )
+            pos_key_layer = self.transpose_for_scores(self.key_proj(rel_embeddings), self.num_attention_heads)
         else:
-            if "c2p" in self.pos_att_type:
-                pos_key_layer = self.transpose_for_scores(
-                    self.pos_key_proj(rel_embeddings), self.num_attention_heads
-                )
-            if "p2c" in self.pos_att_type:
-                pos_query_layer = self.transpose_for_scores(
-                    self.pos_query_proj(rel_embeddings), self.num_attention_heads
-                )
+            pos_key_layer = self.transpose_for_scores(
+                self.pos_key_proj(rel_embeddings), self.num_attention_heads
+            )
+            pos_query_layer = self.transpose_for_scores(
+                self.pos_query_proj(rel_embeddings), self.num_attention_heads
+            )
 
         score = 0
         # content->position
-        if "c2p" in self.pos_att_type:
-            scale = torch.sqrt(torch.tensor(pos_key_layer.size(-1), dtype=torch.float) * scale_factor)
-            c2p_att = torch.matmul(
-                query_layer.reshape(-1, query_layer.shape[0]//2, query_layer.shape[1], query_layer.shape[2]),
-                pos_key_layer.transpose(-1,-2)
-            )
-            c2p_att = c2p_att.reshape(-1, *c2p_att.shape[2:])
+        scale = torch.sqrt(torch.tensor(pos_key_layer.size(-1), dtype=torch.float) * scale_factor)
+        c2p_att = torch.matmul(query_layer.reshape(-1, pos_key_layer.shape[0], *query_layer.shape[1:]), pos_key_layer.transpose(-1, -2)).reshape(query_layer.shape[0], query_layer.shape[1], pos_key_layer.shape[1])
+        if c2p_pos_index is None:
             c2p_pos = torch.clamp(relative_pos + att_span, 0, att_span * 2 - 1)
-            c2p_att2 = torch.take_along_dim(c2p_att, c2p_pos.squeeze(0), dim=-1)
-            c2p_att = torch.gather(
-                c2p_att,
-                dim=-1,
-                index=c2p_pos.squeeze(0).expand([query_layer.size(0), query_layer.size(1), relative_pos.size(-1)]),
-            )
-            print(c2p_att2==c2p_att)
-            score = score + c2p_att / scale.to(dtype=c2p_att.dtype)
+            c2p_pos_index = c2p_pos.squeeze(0).expand([query_layer.size(0), query_layer.size(1), relative_pos.size(-1)])
+        c2p_att = torch.gather(
+            c2p_att,
+            dim=-1,
+            index=c2p_pos_index,
+        )
+        score += c2p_att / scale.to(dtype=c2p_att.dtype)
+        
 
         # position->content
-        if "p2c" in self.pos_att_type:
-            scale = torch.sqrt(torch.tensor(pos_query_layer.size(-1), dtype=torch.float) * scale_factor)
+        scale = torch.sqrt(torch.tensor(pos_query_layer.size(-1), dtype=torch.float) * scale_factor)
+        p2c_att = torch.matmul(key_layer.reshape(-1, pos_query_layer.shape[0], *key_layer.shape[1:]), pos_query_layer.transpose(-1, -2)).reshape(key_layer.shape[0], key_layer.shape[1], pos_query_layer.shape[1])
+        if p2c_pos_index is None:
             if key_layer.size(-2) != query_layer.size(-2):
                 r_pos = build_relative_position(
                     key_layer.size(-2),
@@ -858,23 +850,16 @@ class DisentangledSelfAttention(nn.Module):
                 r_pos = r_pos.unsqueeze(0)
             else:
                 r_pos = relative_pos
-
             p2c_pos = torch.clamp(-r_pos + att_span, 0, att_span * 2 - 1)
-            p2c_att = torch.matmul(
-                key_layer.reshape(-1, key_layer.shape[0]//2, key_layer.shape[1], key_layer.shape[2]),
-                pos_query_layer.transpose(-1,-2)
-            )
-            p2c_att = p2c_att.reshape(-1, *p2c_att.shape[2:])
-            p2c_att = torch.take_along_dim(p2c_att, p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)]), dim=-1)
-            # p2c_att = torch.gather(
-            #     p2c_att,
-            #     dim=-1,
-            #     index=p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)]),
-            # ).transpose(-1, -2)
-            score = score + p2c_att / scale.to(dtype=p2c_att.dtype)
+            p2c_pos_index = p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)])
+        p2c_att = torch.gather(
+            p2c_att,
+            dim=-1,
+            index=p2c_pos_index,
+        ).transpose(-1, -2)
+        score += p2c_att / scale.to(dtype=p2c_att.dtype)
 
-        return score
-
+        return (score, c2p_pos_index, p2c_pos_index)
 
 # Copied from transformers.models.deberta.modeling_deberta.DebertaEmbeddings with DebertaLayerNorm->LayerNorm
 class DebertaV2Embeddings(nn.Module):

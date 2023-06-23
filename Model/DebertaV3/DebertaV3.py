@@ -345,7 +345,7 @@ class LitDebertaV3ForPretraining(pl.LightningModule):
         freeze_model(self.discriminator)
 
         self.hparams.current_step  = self.hparams.current_step + 1
-        self.log_dict({"current_step":self.hparams.current_step, "Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
+        self.log_dict({"train_percentage":self.hparams.current_step/self.hparams.num_training_steps, "Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
         
         gc.collect()
         torch.cuda.empty_cache()
