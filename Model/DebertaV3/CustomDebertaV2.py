@@ -255,7 +255,7 @@ class StableDropout(nn.Module):
                 self.context_stack.append(DropoutContext())
             ctx = self.context_stack[self.count]
             ctx.dropout = self.drop_prob
-            self.count += 1
+            self.count = self.count + 1
             return ctx
         else:
             return self.drop_prob
@@ -750,9 +750,9 @@ class DisentangledSelfAttention(nn.Module):
         # Take the dot product between "query" and "key" to get the raw attention scores.
         scale_factor = 1
         if "c2p" in self.pos_att_type:
-            scale_factor += 1
+            scale_factor = scale_factor + 1
         if "p2c" in self.pos_att_type:
-            scale_factor += 1
+            scale_factor = scale_factor + 1
         scale = torch.sqrt(torch.tensor(query_layer.size(-1), dtype=torch.float) * scale_factor)
         attention_scores = torch.bmm(query_layer, key_layer.transpose(-1, -2) / scale.to(dtype=query_layer.dtype))
         if self.relative_attention:
@@ -811,40 +811,38 @@ class DisentangledSelfAttention(nn.Module):
         if self.share_att_key:
             pos_query_layer = self.transpose_for_scores(
                 self.query_proj(rel_embeddings), self.num_attention_heads
-            ).repeat(
-                query_layer.size(0) // self.num_attention_heads, 1, 1
             )
             pos_key_layer = self.transpose_for_scores(
                 self.key_proj(rel_embeddings), self.num_attention_heads
-            ).repeat(
-                query_layer.size(0) // self.num_attention_heads, 1, 1
             )
         else:
             if "c2p" in self.pos_att_type:
                 pos_key_layer = self.transpose_for_scores(
                     self.pos_key_proj(rel_embeddings), self.num_attention_heads
-                ).repeat(
-                    query_layer.size(0) // self.num_attention_heads, 1, 1
-                )  # .split(self.all_head_size, dim=-1)
+                )
             if "p2c" in self.pos_att_type:
                 pos_query_layer = self.transpose_for_scores(
                     self.pos_query_proj(rel_embeddings), self.num_attention_heads
-                ).repeat(
-                    query_layer.size(0) // self.num_attention_heads, 1, 1
-                )  # .split(self.all_head_size, dim=-1)
+                )
 
-        score = torch.zeros(self.num_attention_heads, query_layer.size(-2), key_layer.size(-2)).type_as(query_layer)
+        score = 0
         # content->position
         if "c2p" in self.pos_att_type:
             scale = torch.sqrt(torch.tensor(pos_key_layer.size(-1), dtype=torch.float) * scale_factor)
-            c2p_att = torch.bmm(query_layer, pos_key_layer.transpose(-1, -2))
+            c2p_att = torch.matmul(
+                query_layer.reshape(-1, query_layer.shape[0]//2, query_layer.shape[1], query_layer.shape[2]),
+                pos_key_layer.transpose(-1,-2)
+            )
+            c2p_att = c2p_att.reshape(-1, *c2p_att.shape[2:])
             c2p_pos = torch.clamp(relative_pos + att_span, 0, att_span * 2 - 1)
+            c2p_att2 = torch.take_along_dim(c2p_att, c2p_pos.squeeze(0), dim=-1)
             c2p_att = torch.gather(
                 c2p_att,
                 dim=-1,
                 index=c2p_pos.squeeze(0).expand([query_layer.size(0), query_layer.size(1), relative_pos.size(-1)]),
             )
-            score += c2p_att / scale.to(dtype=c2p_att.dtype)
+            print(c2p_att2==c2p_att)
+            score = score + c2p_att / scale.to(dtype=c2p_att.dtype)
 
         # position->content
         if "p2c" in self.pos_att_type:
@@ -862,13 +860,18 @@ class DisentangledSelfAttention(nn.Module):
                 r_pos = relative_pos
 
             p2c_pos = torch.clamp(-r_pos + att_span, 0, att_span * 2 - 1)
-            p2c_att = torch.bmm(key_layer, pos_query_layer.transpose(-1, -2))
-            p2c_att = torch.gather(
-                p2c_att,
-                dim=-1,
-                index=p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)]),
-            ).transpose(-1, -2)
-            score += p2c_att / scale.to(dtype=p2c_att.dtype)
+            p2c_att = torch.matmul(
+                key_layer.reshape(-1, key_layer.shape[0]//2, key_layer.shape[1], key_layer.shape[2]),
+                pos_query_layer.transpose(-1,-2)
+            )
+            p2c_att = p2c_att.reshape(-1, *p2c_att.shape[2:])
+            p2c_att = torch.take_along_dim(p2c_att, p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)]), dim=-1)
+            # p2c_att = torch.gather(
+            #     p2c_att,
+            #     dim=-1,
+            #     index=p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)]),
+            # ).transpose(-1, -2)
+            score = score + p2c_att / scale.to(dtype=p2c_att.dtype)
 
         return score
 
@@ -925,10 +928,10 @@ class DebertaV2Embeddings(nn.Module):
 
         embeddings = inputs_embeds
         if self.position_biased_input:
-            embeddings += position_embeddings
+            embeddings = embeddings + position_embeddings
         if self.config.type_vocab_size > 0:
             token_type_embeddings = self.token_type_embeddings(token_type_ids)
-            embeddings += token_type_embeddings
+            embeddings = embeddings + token_type_embeddings
 
         if self.embedding_size != self.config.hidden_size:
             embeddings = self.embed_proj(embeddings)
