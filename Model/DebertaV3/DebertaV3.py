@@ -70,10 +70,12 @@ class LitDebertaV3ForPretrainingWithDeepSpeedZero3(pl.LightningModule):
         self.discriminator_engine.load_checkpoint(self.hparams.discriminator_save_dir, self.hparams.discriminator_checkpoint_id)
 
     def discriminator_postprocessing(self):
-        self.discriminator.deberta.embeddings.word_embeddings.weight = nn.Parameter(
+        discriminator_embeddings = nn.Embedding(self.discriminator.deberta.embeddings.word_embeddings.num_embeddings, self.discriminator.deberta.embeddings.word_embeddings.embedding_dim)
+        discriminator_embeddings.weight = nn.Parameter(
             F.linear(self.generator.deberta.embeddings.word_embeddings.weight, self.discriminator.deberta.embeddings.word_embeddings.weight, self.discriminator.deberta.embeddings.word_embeddings.bias),
             requires_grad=True
         )
+        self.discriminator.deberta.embeddings.word_embeddings = discriminator_embeddings
 
     def forward_generator(self, masked_ids, attention_mask, label_ids):
         labels = torch.where(masked_ids == self.hparams.mask_id, label_ids, -100).type_as(masked_ids)
@@ -196,10 +198,12 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         self.discriminator_engine.load_checkpoint(self.hparams.discriminator_save_dir, self.hparams.discriminator_checkpoint_id)
 
     def discriminator_postprocessing(self):
-        self.discriminator.deberta.embeddings.word_embeddings.weight = nn.Parameter(
+        discriminator_embeddings = nn.Embedding(self.discriminator.deberta.embeddings.word_embeddings.num_embeddings, self.discriminator.deberta.embeddings.word_embeddings.embedding_dim)
+        discriminator_embeddings.weight = nn.Parameter(
             F.linear(self.generator.deberta.embeddings.word_embeddings.weight, self.discriminator.deberta.embeddings.word_embeddings.weight, self.discriminator.deberta.embeddings.word_embeddings.bias),
             requires_grad=True
         )
+        self.discriminator.deberta.embeddings.word_embeddings = discriminator_embeddings
 
     def forward_generator(self, masked_ids, attention_mask, label_ids):
         labels = torch.where(masked_ids == self.hparams.mask_id, label_ids, -100).type_as(masked_ids)
