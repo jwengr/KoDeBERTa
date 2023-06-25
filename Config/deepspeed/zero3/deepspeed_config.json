@@ -28,7 +28,6 @@
         "offload_optimizer": {
             "device": "cpu"
         },
-        "round_robin_gradients":true,
         "offload_param": {
             "device": "cpu"
        }
