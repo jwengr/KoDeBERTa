@@ -41,7 +41,6 @@ class LitDebertaV3ForPretrainingWithDeepSpeedZero3(pl.LightningModule):
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
         with deepspeed.zero.Init():
             self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
-        self.generator._set_gradient_checkpointing(self.hparams.gradient_checkpointing)
         self.generator_engine, _, _, _  = deepspeed.initialize(model=self.generator, model_parameters=self.generator.parameters(), config=self.hparams.ds_config)
 
         self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
@@ -169,7 +168,6 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
         self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
-        self.generator._set_gradient_checkpointing(self.hparams.gradient_checkpointing)
         self.generator_engine, _, _, _  = deepspeed.initialize(model=self.generator, model_parameters=self.generator.parameters(), config=self.hparams.ds_config)
 
         self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
