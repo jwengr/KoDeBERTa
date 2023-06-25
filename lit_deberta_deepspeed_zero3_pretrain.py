@@ -73,7 +73,6 @@ def train(args):
         accelerator=args.pl_accelerator,
         max_steps=args.max_steps - args.current_step,
         logger=logger,
-        log_every_n_steps=args.log_per_step,
     )
 
     trainer.fit(debertav3_pretrainer,dl)
