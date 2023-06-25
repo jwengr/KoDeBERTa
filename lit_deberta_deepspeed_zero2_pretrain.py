@@ -1,3 +1,4 @@
+import os
 import json
 import argparse
 import deepspeed
@@ -9,7 +10,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from Data.DataCollator import DataCollatorForHFUnigramSpanMLM
-from Model.DebertaV3 import LitDebertaV3ForPretrainingWithDeepSpeed
+from Model.DebertaV3.DebertaV3 import LitDebertaV3ForPretrainingWithDeepSpeed
 
 def get_args():
     parser = argparse.ArgumentParser(description="DeBERTaV3")
@@ -30,6 +31,11 @@ def train(args):
     tokenizer = Tokenizer.from_file(args.tokenizer_path)
     mask_id = tokenizer.get_vocab()[args.mask_token]
     pad_id = tokenizer.get_vocab()[args.pad_token]
+
+    if not os.path.exists(args.generator_save_dir):
+        os.makedirs(args.generator_save_dir)
+    if not os.path.exists(args.discriminator_save_dir):
+        os.makedirs(args.discriminator_save_dir)
 
     def gen():
         for data_path in args.data_paths:
@@ -61,12 +67,13 @@ def train(args):
         discriminator_checkpoint_id=args.discriminator_checkpoint_id
     )
 
-    logger = TensorBoardLogger(args.log_dir, name=args.log_name, version=args.log_version)
+    logger = TensorBoardLogger(args.log_dir, name=args.log_name, version=args.log_version, purge_step=args.current_step)
                                
     trainer = pl.Trainer(
         accelerator=args.pl_accelerator,
         max_steps=args.max_steps - args.current_step,
-        logger=logger
+        logger=logger,
+        log_every_n_steps=args.log_per_step,
     )
 
     trainer.fit(debertav3_pretrainer,dl)

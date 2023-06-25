@@ -35,7 +35,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import add_code_sample_docstrings, add_start_docstrings, add_start_docstrings_to_model_forward, logging
 from transformers.models.deberta_v2.configuration_deberta_v2 import DebertaV2Config
 
-import time
+import deepspeed
 
 logger = logging.get_logger(__name__)
 
@@ -465,6 +465,7 @@ class DebertaV2Encoder(nn.Module):
                 pos_ebd_size = self.position_buckets * 2
 
             self.rel_embeddings = nn.Embedding(pos_ebd_size, config.hidden_size)
+            
 
         self.norm_rel_ebd = [x.strip() for x in getattr(config, "norm_rel_ebd", "none").lower().split("|")]
 

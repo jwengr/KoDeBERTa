@@ -29,17 +29,5 @@
             "device": "cpu"
         },
         "round_robin_gradients":true
-    },
-    "activation_checkpointing": {
-        "partition_activations":true,
-        "cpu_checkpointing":true,
-        "contiguous_memory_optimization":true,
-        "number_checkpoints":12,
-        "synchronize_checkpoint_boundary":true
-    },
-    "progressive_layer_drop": {
-        "enabled": true,
-        "theta": 0.5,
-        "gamma": 0.001
     }
 }
