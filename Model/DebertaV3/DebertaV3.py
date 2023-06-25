@@ -39,14 +39,16 @@ class LitDebertaV3ForPretrainingWithDeepSpeedZero3(pl.LightningModule):
         
         self.generator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.generator_config.num_hidden_layers = self.generator_config.num_hidden_layers // 2
-        self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
+        with deepspeed.zero.Init():
+            self.generator = DebertaV2ForMaskedLM(config=self.generator_config)
         self.generator._set_gradient_checkpointing(self.hparams.gradient_checkpointing)
         self.generator_engine, _, _, _  = deepspeed.initialize(model=self.generator, model_parameters=self.generator.parameters(), config=self.hparams.ds_config)
 
         self.discriminator_config = DebertaV2Config.from_pretrained(self.hparams.model_name)
         self.discriminator_config.num_labels = 2
-        self.discriminator = DebertaV2ForTokenClassification(config=self.discriminator_config)
-        self.discriminator.deberta.embeddings.word_embeddings = nn.Linear(self.discriminator_config.hidden_size, self.discriminator_config.hidden_size)
+        with deepspeed.zero.Init():
+            self.discriminator = DebertaV2ForTokenClassification(config=self.discriminator_config)
+            self.discriminator.deberta.embeddings.word_embeddings = nn.Linear(self.discriminator_config.hidden_size, self.discriminator_config.hidden_size)
         self.discriminator_engine, _, _, _ = deepspeed.initialize(model=self.discriminator, model_parameters=self.discriminator.parameters(), config=self.hparams.ds_config)
 
         if self.hparams.load_pretrained:
