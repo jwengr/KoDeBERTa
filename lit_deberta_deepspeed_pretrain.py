@@ -32,9 +32,10 @@ def train(args):
     pad_id = tokenizer.get_vocab()[args.pad_token]
 
     def gen():
-        with open(args.data_path, encoding=args.encoding) as f:
-            for line in f:
-                yield line
+        for data_path in args.data_paths:
+            with open(data_path, encoding=args.encoding) as f:
+                for line in f:
+                    yield line
 
     ds = IterableDataset.from_generator(gen)
     if args.shuffle:
@@ -60,7 +61,7 @@ def train(args):
         discriminator_checkpoint_id=args.discriminator_checkpoint_id
     )
 
-    logger = TensorBoardLogger(args.log_dir, name="LitDebertaV3ForPretrainingWithDeepSpeed_DataCollatorForHFUnigramSpanMLM")
+    logger = TensorBoardLogger(args.log_dir, name=args.log_name, version=args.log_version)
                                
     trainer = pl.Trainer(
         accelerator=args.pl_accelerator,
