@@ -12,13 +12,13 @@
         "enabled": true
     },  
     "gradient_clipping":1.0,
-    "steps_per_print":10000,
+    "steps_per_print":10000000,
     "scheduler": {
         "type": "WarmupLR",
         "params": {
             "warmup_min_lr": 0,
             "warmup_max_lr": 1e-7,
-            "warmup_num_steps": 20480000,
+            "warmup_num_steps": 5120000,
             "warmup_type": "linear"
         }
     },

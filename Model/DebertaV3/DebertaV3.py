@@ -255,14 +255,13 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         freeze_model(self.discriminator)
 
         self.log_dict({"Loss_G": loss_generator, "Loss_D": loss_discriminator}, on_step=True, on_epoch=False, prog_bar=True)
-        self.generator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_generator.item()}'
-        self.discriminator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
-        
         if self.hparams.log_per_steps>0 and self.hparams.current_step%self.hparams.log_per_steps==0:
             self.writer.add_scalar('Loss_G', loss_generator.item(), self.hparams.current_step)
             self.writer.add_scalar('Loss_D', loss_discriminator.item(), self.hparams.current_step)
 
         if self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0:
+            self.generator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_generator.item()}'
+            self.discriminator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
             self.save()
 
         self.hparams.current_step = self.hparams.current_step+1

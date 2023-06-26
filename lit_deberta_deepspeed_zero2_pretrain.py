@@ -1,6 +1,7 @@
 import os
 import json
 import argparse
+import torch
 import deepspeed
 import pytorch_lightning as pl
 
@@ -54,6 +55,8 @@ def train(args):
     if args.collate_fn == 'DataCollatorForHFUnigramSpanMLM':
         collate_fn = DataCollatorForHFUnigramSpanMLM(tokenizer, truncation_argument={'max_length':args.max_length}, mask_prob=args.mask_prob)
     dl = DataLoader(ds, batch_size=args.batch_size, collate_fn=collate_fn)
+
+    torch.set_float32_matmul_precision(args.torch_float32_matmul_precision)
 
     debertav3_pretrainer = LitDebertaV3ForPretrainingWithDeepSpeed(
         ds_config=args.deepspeed_config,
