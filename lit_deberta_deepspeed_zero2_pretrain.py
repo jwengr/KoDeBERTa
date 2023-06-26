@@ -32,10 +32,14 @@ def train(args):
     mask_id = tokenizer.get_vocab()[args.mask_token]
     pad_id = tokenizer.get_vocab()[args.pad_token]
 
+    log_path = os.path.join(args.log_dir, args.log_name)
+
     if not os.path.exists(args.generator_save_dir):
         os.makedirs(args.generator_save_dir)
     if not os.path.exists(args.discriminator_save_dir):
         os.makedirs(args.discriminator_save_dir)
+    if not os.path.exists(log_path):
+        os.makedirs(log_path)
 
     def gen():
         for data_path in args.data_paths:
@@ -58,21 +62,20 @@ def train(args):
         pad_id=pad_id, 
         current_step=args.current_step,
         max_steps=args.max_steps, 
+        log_path=log_path,
+        log_per_steps=args.log_per_steps,
         save_per_steps=args.save_per_steps,
         gradient_checkpointing=args.gradient_checkpointing,
         generator_save_dir=args.generator_save_dir,
         discriminator_save_dir=args.discriminator_save_dir,
         load_pretrained=args.load_pretrained,
         generator_checkpoint_id=args.generator_checkpoint_id,
-        discriminator_checkpoint_id=args.discriminator_checkpoint_id
+        discriminator_checkpoint_id=args.discriminator_checkpoint_id,
     )
-
-    logger = TensorBoardLogger(args.log_dir, name=args.log_name, version=args.log_version, purge_step=args.current_step)
                                
     trainer = pl.Trainer(
         accelerator=args.pl_accelerator,
         max_steps=args.max_steps - args.current_step,
-        logger=logger,
     )
 
     trainer.fit(debertav3_pretrainer,dl)

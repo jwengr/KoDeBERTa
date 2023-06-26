@@ -14,7 +14,7 @@
     "max_length":512,
     "batch_size":16,
     "current_step":0,
-    "save_per_steps":8192,
+    "save_per_steps":4096,
     "max_steps":256000000,
     "seed":0,
     "shuffle":false,
@@ -30,7 +30,7 @@
     "discriminator_save_dir":"/content/drive/MyDrive/KoDeBERTa/models/exp1/discriminator",
     "log_dir":"/content/drive/MyDrive/KoDeBERTa/logs",
     "log_name": "LitDebertaV3ForPretrainingWithDeepSpeed_DataCollatorForHFUnigramSpanMLM",
-    "log_version": "zero3",
+    "log_per_steps":50,
     "load_pretrained":false,
     "generator_checkpoint_id":"generator_step=0_loss=11.875",
     "discriminator_checkpoint_id":"discriminator_step=0_loss=33.75"

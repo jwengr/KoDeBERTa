@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
+from torch.utils.tensorboard import SummaryWriter
 
 def freeze_model(model):
     for param in model.parameters():
@@ -22,6 +23,8 @@ class LitDebertaV3ForPretrainingWithDeepSpeedZero3(pl.LightningModule):
             pad_id, 
             current_step,
             max_steps, 
+            log_path,
+            log_per_steps,
             save_per_steps,
             gradient_checkpointing,
             generator_save_dir,
@@ -62,6 +65,8 @@ class LitDebertaV3ForPretrainingWithDeepSpeedZero3(pl.LightningModule):
 
         self.automatic_optimization = False
 
+        self.writer = SummaryWriter(self.hparams.log_path)
+
     def load_pretrained(self):
         self.generator.load_state_dict(torch.load(f'{self.hparams.generator_save_dir}/{self.hparams.generator_checkpoint_id}.pth'))
         self.generator_engine.load_checkpoint(self.hparams.generator_save_dir, self.hparams.generator_checkpoint_id)
@@ -117,6 +122,10 @@ class LitDebertaV3ForPretrainingWithDeepSpeedZero3(pl.LightningModule):
         self.generator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_generator.item()}'
         self.discriminator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
         
+        if self.hparams.log_per_steps>0 and self.hparams.current_step%self.hparams.log_per_steps==0:
+            self.writer.add_scalar('Loss_G', loss_generator.item(), self.hparams.current_step)
+            self.writer.add_scalar('Loss_D', loss_discriminator.item(), self.hparams.current_step)
+
         if self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0:
             self.save()
 
@@ -152,6 +161,8 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
             pad_id, 
             current_step,
             max_steps, 
+            log_path,
+            log_per_steps,
             save_per_steps,
             gradient_checkpointing,
             generator_save_dir,
@@ -190,6 +201,8 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
 
         self.automatic_optimization = False
 
+        self.writer = SummaryWriter(self.hparams.log_path)
+
     def load_pretrained(self):
         self.generator.load_state_dict(torch.load(f'{self.hparams.generator_save_dir}/{self.hparams.generator_checkpoint_id}.pth'))
         self.generator_engine.load_checkpoint(self.hparams.generator_save_dir, self.hparams.generator_checkpoint_id)
@@ -245,6 +258,10 @@ class LitDebertaV3ForPretrainingWithDeepSpeed(pl.LightningModule):
         self.generator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_generator.item()}'
         self.discriminator_checkpoint_id = f'current_step={self.hparams.current_step}_loss={loss_discriminator.item()}'
         
+        if self.hparams.log_per_steps>0 and self.hparams.current_step%self.hparams.log_per_steps==0:
+            self.writer.add_scalar('Loss_G', loss_generator.item(), self.hparams.current_step)
+            self.writer.add_scalar('Loss_D', loss_discriminator.item(), self.hparams.current_step)
+
         if self.hparams.current_step>0 and self.hparams.current_step%self.hparams.save_per_steps==0:
             self.save()
 
