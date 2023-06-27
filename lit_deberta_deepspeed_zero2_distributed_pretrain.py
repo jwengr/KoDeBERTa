@@ -61,7 +61,7 @@ def train(args):
     ds = IterableDataset.from_generator(gen)
     if args.shuffle:
         ds.shuffle(seed=args.seed, buffer_size=args.buffer_size)
-    ds = ds.skip(args.current_step * args.batch_size)
+    ds = ds.skip(max(0,args.current_step-1) * args.batch_size)
     if args.collate_fn == 'DataCollatorForHFUnigramSpanMLM':
         collate_fn = DataCollatorForHFUnigramSpanMLM(tokenizer, truncation_argument={'max_length':args.max_length}, mask_prob=args.mask_prob)
     sampler = DistributedSampler(ds, shuffle=False)
