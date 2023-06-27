@@ -14,7 +14,7 @@
     "max_length":512,
     "batch_size":64,
     "current_step":0,
-    "save_per_steps":1024,
+    "save_per_steps":2048,
     "max_steps":64000000,
     "seed":0,
     "shuffle":false,
