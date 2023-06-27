@@ -1,0 +1,32 @@
+{
+    "data_paths":[
+        "kodeberta/data/mecab-1.txt"
+    ],
+    "encoding":"utf-8-sig",
+    "model_name":"microsoft/deberta-v3-xsmall",
+    "max_length":512,
+    "batch_size":64,
+    "current_step":0,
+    "save_per_steps":1024,
+    "max_steps":64000000,
+    "seed":0,
+    "shuffle":false,
+    "buffer_size":8800000,
+    "tokenizer_path":"kodeberta/tokenizer/mecab-hf-unigram-880M-128k.json",
+    "mask_token":"[MASK]",
+    "pad_token":"[PAD]",
+    "collate_fn":"DataCollatorForHFUnigramSpanMLM",
+    "mask_prob":0.15,
+    "pl_accelerator":"auto",
+    "gradient_checkpointing":true,
+    "generator_save_dir":"checkpoint/generator",
+    "discriminator_save_dir":"checkpoint/discriminator",
+    "log_dir":"logs",
+    "log_name": "LitDebertaV3ForPretrainingWithDeepSpeedDistributed_DataCollatorForHFUnigramSpanMLM",
+    "log_per_steps": 50,
+    "load_pretrained":false,
+    "generator_checkpoint_id":"generator_step=0_loss=11.875",
+    "discriminator_checkpoint_id":"discriminator_step=0_loss=33.75",
+    "torch_float32_matmul_precision": "medium",
+    "gcp_key_path": "kodeberta/credential/gcp_key_path.json"
+}
