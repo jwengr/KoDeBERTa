@@ -35,8 +35,6 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import add_code_sample_docstrings, add_start_docstrings, add_start_docstrings_to_model_forward, logging
 from transformers.models.deberta_v2.configuration_deberta_v2 import DebertaV2Config
 
-import deepspeed
-
 logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "DebertaV2Config"
@@ -527,6 +525,7 @@ class DebertaV2Encoder(nn.Module):
         else:
             next_kv = hidden_states
         rel_embeddings = self.get_rel_embedding()
+        rel_embeddings = rel_embeddings[0 : self.position_buckets * 2, :].unsqueeze(0)
         c2p_pos_index = None
         p2c_pos_index = None
         output_states = next_kv
@@ -807,7 +806,6 @@ class DisentangledSelfAttention(nn.Module):
         att_span = self.pos_ebd_size
         relative_pos = relative_pos.long().to(query_layer.device)
 
-        rel_embeddings = rel_embeddings[0 : att_span * 2, :].unsqueeze(0)
         if self.share_att_key:
             pos_query_layer = self.transpose_for_scores(
                 self.query_proj(rel_embeddings), self.num_attention_heads
