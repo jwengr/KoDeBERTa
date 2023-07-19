@@ -2,7 +2,6 @@ import random
 import numpy as np
 import torch
 import torch.nn as nn
-import tensorflow as tf
 
 from tokenizers import Tokenizer
 
@@ -33,6 +32,8 @@ class DataCollatorForHFUnigramSpanMLM:
         self.truncation_argument = truncation_argument
         self.from_hf_datasets=from_hf_datasets
         self.return_tensors=return_tensors
+        if self.return_tensors=='tf':
+            import tensorflow as tf
 
         if self.padding_argument:
             self.tokenizer.enable_padding(**self.padding_argument)
